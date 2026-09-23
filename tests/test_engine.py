@@ -10,6 +10,7 @@ from app.engine import (
     Event,
     Interval,
     channel_held_intervals,
+    connected_components,
     evaluate_rule,
     intersect,
     to_epoch,
@@ -155,3 +156,29 @@ def test_and_missing_channel_never_matches():
         horizon=10,
     )
     assert faults == []
+
+
+def _cc(starts_ends):
+    # each item is (tag, start, end); component result -> list of tags
+    items = [(tag, s, e) for tag, s, e in starts_ends]
+    groups = connected_components(items, start=lambda it: it[1], end=lambda it: it[2])
+    return [[it[0] for it in g] for g in groups]
+
+
+def test_connected_components_overlap_and_touch():
+    # [0,5) touches [5,10), [10,20) overlaps [5,10) -> one component
+    assert _cc([("a", 0, 5), ("b", 5, 10), ("c", 10, 20)]) == [["a", "b", "c"]]
+    # overlapping (non-touching) relation works too
+    assert _cc([("a", 0, 8), ("b", 4, 12)]) == [["a", "b"]]
+
+
+def test_connected_components_transitive_chain():
+    # A and C never overlap; the chain A~B~C must still merge all three
+    assert _cc([("a", 0, 5), ("b", 4, 9), ("c", 8, 14)]) == [["a", "b", "c"]]
+
+
+def test_connected_components_real_gap_separates():
+    # [0,5) and [5.5,9) do not touch; events stay separate and span-sorted
+    assert _cc([("a", 0, 5), ("b", 5.5, 9), ("c", 20, 30)]) == [["a"], ["b"], ["c"]]
+    # components are emitted in start order regardless of input order
+    assert _cc([("c", 20, 30), ("a", 0, 5), ("b", 5.5, 9)]) == [["a"], ["b"], ["c"]]

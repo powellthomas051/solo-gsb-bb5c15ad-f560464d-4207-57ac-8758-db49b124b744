@@ -3,7 +3,7 @@
 本地运行的多通道传感器故障规则工作台：导入 JSONL 遥测事件 → 定义带 AND/OR 与持续时长的故障规则 →
 把每个通道的样本值展开为**半开时间区间** `[start, end)`，用**扫描线（sweep line）**合并条件真值，
 产出每条规则的**故障区间**及**触发证据** → 在时间轴上创建区间标注 → 按时间范围筛选并导出包含
-原始事件、故障区间、规则与证据的 JSON。
+原始事件、故障区间、跨规则**故障事件**、规则与证据的 JSON。
 
 技术栈：Python 3.11 · FastAPI · SQLite（标准库 `sqlite3`）· 原生 JavaScript（无构建、无前端框架）。
 
@@ -56,6 +56,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
      另一个独立的压力低谷 `[00:10,00:14)` 为第二个故障。
 3. 在时间轴上**按住拖拽**框选一段时间，填写名称即可创建区间标注。
 4. 点击故障色块或故障行，展开每个条件的触发样本证据；再点 **「导出 JSON」** 下载完整结果。
+5. 故障卡片右上角切换到 **「故障事件」**：pump-2 的两个互不相接故障 `[00:03,00:09)` 与
+   `[00:10,00:14)` 都与 pump-1 高温 `[00:06,00:17)` 重叠（AND 故障 `[00:12,00:14)` 也落在其中），
+   经传递关系 4 个故障归并为 **1 个事件 `E1`，区间 `[00:03,00:17)`，含 3 条规则、4 个成员故障**；
+   点击事件行可展开成员规则、各自区间与原始触发证据。
 
 重新生成示例数据：`python3 samples/generate_sample.py`
 
@@ -99,7 +103,22 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 - 原始事件是时间点，筛选时**两端包含**（`start ≤ ts ≤ end`）。
 - 故障区间 / 标注是 `[start,end)` 半开区间，与筛选窗口按**半开相交**返回（`iv.end > start AND iv.start < end`）。
-- 筛选同时作用于时间轴、故障列表、标注列表、原始事件表和导出。
+- 筛选同时作用于时间轴、故障列表、故障事件列表、标注列表、原始事件表和导出。
+
+## 故障事件（跨规则归并）
+
+「故障事件」是在**原故障结果之上**的只读视图，不改写、不删除任何故障区间：
+
+- **归并条件**：不同（或相同）规则产生的两个故障，半开区间 `[a,b)`、`[c,d)`
+  **重叠**（`a < d 且 c < b`）或**首尾相接**（`b == c`）即属于同一事件；
+  关系按**传递闭包**计算——A 与 B 相接、B 与 C 重叠时，即便 A、C 互不相交也归为同一事件。
+- **事件区间**：取全部成员故障的最早 `start` 至最晚 `end`（含传递链拉长的外包络）。
+- **成员明细**：列出每条成员规则（名称 / AND|OR）、各自 `[start,end)`、确认时刻，
+  以及该故障原封不动的逐条件**触发证据**（命中样本 event_id/时间/值、成立子区间）。
+- **筛选语义**：先在**全部历史故障**上完成归并（避免窗口切断传递链），再保留事件区间与当前
+  时间范围半开相交的事件。事件外包络因此可能伸出窗口外；落在窗口外的成员会用
+  「在当前筛选窗口外（归并所需，一并展示）」标记，证据仍完整展示。
+- 事件在响应内按区间起始排序并临时编号 `E1, E2, …`（筛选范围变化时重新编号，不持久化）。
 
 ## 导出 JSON
 
@@ -127,9 +146,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
       ]
     }
   ],
+  "fault_events": [
+    {
+      "event_id": "E1",
+      "start": 1790121780.0, "end": 1790122620.0, "duration": 840.0,
+      "fault_count": 4, "rule_count": 3,
+      "rules": [ {"rule_id": 3, "rule_name": "...", "logic": "OR"} ],
+      "members": [ /* 完整 fault_interval 对象（含 evidence），附 in_window 标记 */ ]
+    }
+  ],
   "annotations": [ /* 区间标注 */ ]
 }
 ```
+
+`fault_events[].members[]` 与 `fault_intervals[]` 中的对象结构完全一致（证据不重复计算，
+仅按事件分组引用），并额外带 `in_window`：成员故障本身是否与筛选窗口半开相交。
 
 ---
 
@@ -146,6 +177,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 | `GET/POST /api/rules`，`GET/PUT/DELETE /api/rules/{id}` | 规则增删改查 |
 | `POST /api/evaluate` | 重新评估全部规则，重算故障区间与证据 |
 | `GET /api/faults?start&end` | 故障区间（含证据，半开相交筛选） |
+| `GET /api/fault-events?start&end` | 故障事件（跨规则区间重叠/首尾相接的传递归并，含成员规则、区间与证据） |
 | `GET/POST /api/annotations`，`DELETE /api/annotations/{id}` | 区间标注 |
 | `GET /api/timeline?start&end&max_points` | 时间轴聚合数据（通道抽样、故障、标注） |
 | `GET /api/export?start&end&download=true` | 导出完整 JSON（附件下载） |
@@ -169,14 +201,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ```
 app/
-  engine.py           # 半开区间、扫描线 AND/OR 合并、持续时长过滤、证据
+  engine.py           # 半开区间、扫描线 AND/OR 合并、持续时长过滤、证据、区间连通分量归组
   db.py               # SQLite 连接、建表、基础查询
-  services.py         # JSONL 导入、规则评估、时间轴抽样、筛选、导出
+  services.py         # JSONL 导入、规则评估、时间轴抽样、筛选、故障事件归并、导出
   main.py             # FastAPI 路由与静态页面
   static/             # 原生 JS 前端（index.html / app.js / styles.css）
 samples/
   telemetry.jsonl     # 示例数据（generate_sample.py 可再生成）
-tests/test_engine.py  # 引擎单元测试（pytest）
+tests/test_engine.py    # 引擎单元测试（pytest）
+tests/test_fault_events.py  # 故障事件归并单元测试（pytest）
 Dockerfile / docker-compose.yml / requirements.txt
 ```
 
@@ -188,4 +221,5 @@ python3 -m pytest tests/ -q
 ```
 
 测试覆盖：相接区间合并、真实缝隙不桥接、AND 相交（含同时刻边界）、OR 跨通道相接合并、
-持续时长过滤单点尖峰、缺失通道、同时间戳后值覆盖等关键语义。
+持续时长过滤单点尖峰、缺失通道、同时间戳后值覆盖，以及故障事件的区间重叠/相接/传递归并、
+真实缝隙分离、外包络区间与规则去重等关键语义。

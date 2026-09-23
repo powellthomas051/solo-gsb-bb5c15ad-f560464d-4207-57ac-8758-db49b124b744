@@ -118,8 +118,15 @@
       </section>
 
       <section class="card">
-        <div class="card-head"><h2>故障区间与触发证据</h2><span id="fault-count" class="muted"></span></div>
+        <div class="card-head">
+          <div class="view-tabs" role="tablist">
+            <button id="tab-faults" class="view-tab active" role="tab">故障列表</button>
+            <button id="tab-events" class="view-tab" role="tab">故障事件</button>
+          </div>
+          <span id="fault-count" class="muted"></span>
+        </div>
         <div id="fault-list"></div>
+        <div id="fault-event-list" hidden></div>
       </section>
 
       <section class="card">

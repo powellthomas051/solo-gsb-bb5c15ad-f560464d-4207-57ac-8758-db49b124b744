@@ -197,6 +197,45 @@ body {
 
 .fault-row { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
 .fault-summary { display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer; background: #fbfcfe; flex-wrap: wrap; }
+
+/* fault list / fault event view tabs */
+.view-tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.view-tab {
+  border: none; background: #f8fafc; color: var(--muted);
+  padding: 5px 14px; cursor: pointer; font-size: 13px;
+}
+.view-tab + .view-tab { border-left: 1px solid var(--border); }
+.view-tab:hover { background: #f1f5f9; color: var(--text); }
+.view-tab.active { background: var(--primary); color: #fff; }
+
+.event-row { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+.event-summary {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  cursor: pointer; background: #f8faff; flex-wrap: wrap;
+}
+.event-summary:hover { background: #eef2ff; }
+.event-caret { color: var(--muted); width: 12px; }
+.event-id { font-weight: 700; font-variant-numeric: tabular-nums; color: #3730a3; }
+.tag-multi { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.event-rules { display: flex; gap: 6px; flex-wrap: wrap; }
+.event-detail { border-top: 1px solid var(--border); padding: 8px 10px; display: none; background: #fff; }
+.event-row.open .event-detail { display: block; }
+.event-meta { margin-bottom: 6px; }
+
+.event-member {
+  border: 1px solid var(--border); border-radius: 7px; margin: 8px 0 8px 10px; overflow: hidden;
+}
+.event-member.selected-member { border-color: var(--primary); box-shadow: 0 0 0 2px #dbeafe; }
+.event-member.out-window { background: #f8fafc; }
+.member-summary {
+  display: flex; align-items: center; gap: 10px; padding: 7px 9px; cursor: pointer;
+  background: #fbfcfe; flex-wrap: wrap;
+}
+.member-summary:hover { background: #f1f5f9; }
+.out-window .member-summary { background: #f3f4f6; opacity: 0.85; }
+.member-detail { border-top: 1px dashed var(--border); padding: 8px 9px; display: none; }
+.event-row.open .member-detail { display: block; }
+.tag-out { background: #fffbeb; border-color: #fde68a; color: #92400e; }
 .fault-summary:hover { background: #f1f5f9; }
 .fault-time { font-variant-numeric: tabular-nums; font-size: 12px; }
 .fault-name { font-weight: 600; }

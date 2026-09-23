@@ -14,6 +14,9 @@ const state = {
   viewEnd: null,
   timeline: null,
   selectedFaultId: null,
+  faultEvents: [],
+  faultView: "faults",
+  expandedEventId: null,
   editingRuleId: null,
   eventOffset: 0,
   eventLimit: 200,
@@ -222,7 +225,9 @@ async function evaluateRules() {
   try {
     const r = await api("/api/evaluate", { method: "POST" });
     await loadTimeline();
+    await loadFaultEvents();
     renderFaults();
+    renderFaultEvents();
     toast(`评估完成：${r.rules_evaluated} 条规则，${r.fault_intervals} 个故障区间`);
   } catch (e) { toast(e.message, true); }
 }
@@ -574,9 +579,27 @@ async function saveBrushAnnotation() {
 
 /* ------------------------------ fault list ------------------------------ */
 
+function evidenceBlockHtml(f, ev, i) {
+  return `
+    <div class="evidence-block">
+      <div><strong>条件 ${i + 1}：</strong>
+        <span class="pill" style="background:${ruleColor(f.rule_id)}">${esc(ev.condition.device)}/${esc(ev.condition.metric)}</span>
+        ${ev.condition.op} ${fmtNum(ev.condition.threshold)}
+        · 命中 ${ev.events.length} 个样本
+        · 成立子区间 ${ev.held_intervals.map((iv) => `[${iv[0]}, ${iv[1]})`).join("，") || "无"}
+      </div>
+      <table>
+        <thead><tr><th>event_id</th><th>时间 (UTC)</th><th>值</th></tr></thead>
+        <tbody>
+          ${ev.events.map((p) => `<tr><td>${p.event_id}</td><td>${fmtTime(p.ts)}</td><td>${fmtNum(p.value)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+
 function renderFaults() {
   const faults = state.timeline ? state.timeline.faults : [];
-  $("fault-count").textContent = `${faults.length} 个区间`;
+  if (state.faultView === "faults") $("fault-count").textContent = `${faults.length} 个故障区间`;
   const box = $("fault-list");
   if (!faults.length) {
     box.innerHTML = `<div class="empty">当前范围内无故障区间。导入数据、定义规则后点击「评估规则」。</div>`;
@@ -594,21 +617,7 @@ function renderFaults() {
       </div>
       <div class="fault-detail">
         <div><strong>半开区间：</strong>[${f.start}, ${f.end})</div>
-        ${f.evidence.map((ev, i) => `
-          <div class="evidence-block">
-            <div><strong>条件 ${i + 1}：</strong>
-              <span class="pill" style="background:${ruleColor(f.rule_id)}">${esc(ev.condition.device)}/${esc(ev.condition.metric)}</span>
-              ${ev.condition.op} ${fmtNum(ev.condition.threshold)}
-              · 命中 ${ev.events.length} 个样本
-              · 成立子区间 ${ev.held_intervals.map((iv) => `[${iv[0]}, ${iv[1]})`).join("，") || "无"}
-            </div>
-            <table>
-              <thead><tr><th>event_id</th><th>时间 (UTC)</th><th>值</th></tr></thead>
-              <tbody>
-                ${ev.events.map((p) => `<tr><td>${p.event_id}</td><td>${fmtTime(p.ts)}</td><td>${fmtNum(p.value)}</td></tr>`).join("")}
-              </tbody>
-            </table>
-          </div>`).join("")}
+        ${f.evidence.map((ev, i) => evidenceBlockHtml(f, ev, i)).join("")}
       </div>
     </div>`).join("");
 
@@ -617,13 +626,103 @@ function renderFaults() {
   });
 }
 
+/* ----------------------------- fault events ----------------------------- */
+
+function renderFaultEvents() {
+  const events = state.faultEvents;
+  if (state.faultView === "events") {
+    $("fault-count").textContent = `${events.length} 个故障事件 · ${(state.timeline ? state.timeline.faults.length : 0)} 个故障区间`;
+  }
+  const box = $("fault-event-list");
+  if (!events.length) {
+    box.innerHTML = `<div class="empty">当前范围内无故障事件。导入数据、定义规则后点击「评估规则」。</div>`;
+    return;
+  }
+  box.innerHTML = events.map((ev) => {
+    const open = state.expandedEventId === ev.event_id;
+    const rules = ev.rules.map((r) =>
+      `<span class="tag" style="white-space:nowrap"><span class="swatch" style="background:${ruleColor(r.rule_id)};vertical-align:middle"></span> ${esc(r.rule_name)}</span>`
+    ).join(" ");
+    return `
+      <div class="event-row ${open ? "open" : ""}" data-id="${esc(ev.event_id)}">
+        <div class="event-summary">
+          <span class="event-caret">${open ? "▾" : "▸"}</span>
+          <span class="event-id">${esc(ev.event_id)}</span>
+          <span class="tag ${ev.rule_count > 1 ? "tag-multi" : ""}">${ev.rule_count > 1 ? `${ev.rule_count} 条规则` : "单规则"}</span>
+          <span class="tag" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46">${ev.fault_count} 个故障</span>
+          <span class="fault-time">${fmtTime(ev.start)} → ${fmtTime(ev.end)}</span>
+          <span class="muted small">跨度 ${fmtDur(ev.duration)}</span>
+          <span class="event-rules">${rules}</span>
+        </div>
+        <div class="event-detail">
+          <div class="event-meta small muted">
+            事件区间取成员故障的最早开始至最晚结束：<strong>[${ev.start}, ${ev.end})</strong>
+            （半开区间重叠或首尾相接归并，传递重叠同样归并）
+          </div>
+          ${ev.members.map((f) => `
+            <div class="event-member ${state.selectedFaultId === f.id ? "selected-member" : ""} ${f.in_window ? "" : "out-window"}" data-fault-id="${f.id}">
+              <div class="member-summary">
+                <span class="swatch" style="background:${ruleColor(f.rule_id)};width:10px;height:10px"></span>
+                <span class="fault-name">${esc(f.rule_name)}</span>
+                <span class="tag">${f.logic}</span>
+                <span class="fault-time">${fmtTime(f.start)} → ${fmtTime(f.end)}</span>
+                <span class="tag" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46">持续 ${fmtDur(f.end - f.start)}</span>
+                <span class="confirm-note">满 ${fmtDur(f.duration_required)} 于 ${fmtClock(f.confirmed_at)} 确认</span>
+                ${f.in_window ? "" : `<span class="tag tag-out">在当前筛选窗口外（归并所需，一并展示）</span>`}
+              </div>
+              <div class="member-detail">
+                <div><strong>半开区间：</strong>[${f.start}, ${f.end})</div>
+                ${f.evidence.map((g, i) => evidenceBlockHtml(f, g, i)).join("")}
+              </div>
+            </div>`).join("")}
+        </div>
+      </div>`;
+  }).join("");
+
+  box.querySelectorAll(".event-row").forEach((row) => {
+    row.querySelector(".event-summary").addEventListener("click", () => toggleEvent(row.dataset.id));
+  });
+  box.querySelectorAll(".event-member").forEach((m) => {
+    m.querySelector(".member-summary").addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectFault(Number(m.dataset.faultId));
+    });
+  });
+}
+
+function toggleEvent(eventId) {
+  state.expandedEventId = state.expandedEventId === eventId ? null : eventId;
+  renderFaultEvents();
+}
+
+function eventContainingFault(faultId) {
+  return state.faultEvents.find((ev) => ev.members.some((m) => m.id === faultId)) || null;
+}
+
+function switchFaultView(view) {
+  state.faultView = view;
+  $("tab-faults").classList.toggle("active", view === "faults");
+  $("tab-events").classList.toggle("active", view === "events");
+  $("fault-list").hidden = view !== "faults";
+  $("fault-event-list").hidden = view !== "events";
+  renderFaults();
+  renderFaultEvents();
+}
+
 function selectFault(id) {
   state.selectedFaultId = state.selectedFaultId === id ? null : id;
+  if (state.selectedFaultId) {
+    const containing = eventContainingFault(state.selectedFaultId);
+    if (containing) state.expandedEventId = containing.event_id;
+  }
   renderFaults();
+  renderFaultEvents();
   renderTimeline();
   if (state.selectedFaultId) {
-    const row = document.querySelector(`.fault-row[data-id="${state.selectedFaultId}"]`);
-    if (row) row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const sel = state.faultView === "events"
+      ? document.querySelector(`.event-member[data-fault-id="${state.selectedFaultId}"]`)
+      : document.querySelector(`.fault-row[data-id="${state.selectedFaultId}"]`);
+    if (sel) sel.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 
@@ -709,6 +808,16 @@ async function loadTimeline() {
   state.timeline = await api(`/api/timeline?${params}`);
 }
 
+async function loadFaultEvents() {
+  ensureView();
+  const params = new URLSearchParams();
+  if (state.viewStart !== state.dataStart) params.set("start", state.viewStart);
+  if (state.viewEnd !== state.dataEnd) params.set("end", state.viewEnd);
+  state.faultEvents = await api(`/api/fault-events?${params}`);
+  const ids = new Set(state.faultEvents.map((ev) => ev.event_id));
+  if (state.expandedEventId && !ids.has(state.expandedEventId)) state.expandedEventId = null;
+}
+
 function ensureView() {
   if (state.viewStart === null || state.viewEnd === null) {
     state.viewStart = state.dataStart;
@@ -725,10 +834,12 @@ async function reloadAll() {
   await loadRules();
   await loadChannels();
   await loadTimeline();
+  await loadFaultEvents();
   state.selectedFaultId = null;
   renderRules();
   renderTimeline();
   renderFaults();
+  renderFaultEvents();
   renderAnnotations();
   syncFilterInputs();
   state.eventOffset = 0;
@@ -739,8 +850,13 @@ async function reloadAll() {
 async function refreshAfterRuleChange() {
   await loadRules();
   await loadChannels();
+  await loadTimeline();
+  await loadFaultEvents();
+  state.selectedFaultId = null;
   renderRules();
   renderTimeline();
+  renderFaults();
+  renderFaultEvents();
 }
 
 function updateStatus() {
@@ -767,8 +883,10 @@ async function applyFilter() {
   if (s === null || e === null || e <= s) { toast("请填写有效的起始/结束时间", true); return; }
   state.viewStart = s; state.viewEnd = e;
   await loadTimeline();
+  await loadFaultEvents();
   state.selectedFaultId = null;
-  renderTimeline(); renderFaults(); renderAnnotations();
+  state.expandedEventId = null;
+  renderTimeline(); renderFaults(); renderFaultEvents(); renderAnnotations();
   state.eventOffset = 0;
   await loadEvents(false);
   syncFilterInputs();
@@ -778,8 +896,10 @@ async function clearFilter() {
   state.viewStart = state.dataStart;
   state.viewEnd = state.dataEnd;
   await loadTimeline();
+  await loadFaultEvents();
   state.selectedFaultId = null;
-  renderTimeline(); renderFaults(); renderAnnotations();
+  state.expandedEventId = null;
+  renderTimeline(); renderFaults(); renderFaultEvents(); renderAnnotations();
   state.eventOffset = 0;
   await loadEvents(false);
   syncFilterInputs();
@@ -873,6 +993,8 @@ function bind() {
   $("btn-apply-filter").addEventListener("click", applyFilter);
   $("btn-clear-filter").addEventListener("click", clearFilter);
   $("btn-fit").addEventListener("click", clearFilter);
+  $("tab-faults").addEventListener("click", () => switchFaultView("faults"));
+  $("tab-events").addEventListener("click", () => switchFaultView("events"));
   $("btn-more-events").addEventListener("click", () => loadEvents(true));
 
   $("brush-save").addEventListener("click", saveBrushAnnotation);

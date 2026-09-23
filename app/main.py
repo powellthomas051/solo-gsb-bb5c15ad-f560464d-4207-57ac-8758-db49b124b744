@@ -293,6 +293,11 @@ def get_faults(start: str | None = None, end: str | None = None) -> list[dict]:
     return services.query_faults(parse_bound(start), parse_bound(end))
 
 
+@app.get("/api/fault-events")
+def get_fault_events(start: str | None = None, end: str | None = None) -> list[dict]:
+    return services.query_fault_events(parse_bound(start), parse_bound(end))
+
+
 # --------------------------------------------------------------------------- #
 # Annotations
 # --------------------------------------------------------------------------- #
@@ -357,6 +362,7 @@ def export(
         start_ts, end_ts, limit=10_000_000, offset=0
     )
     faults = [f for f in services.query_faults(start_ts, end_ts)]
+    fault_events = services.query_fault_events(start_ts, end_ts)
     annotations = services.query_annotations(start_ts, end_ts)
 
     # Split fault evidence into explicit per-condition evidence references so
@@ -390,6 +396,7 @@ def export(
         "events_total_in_range": total,
         "evidence_only_events": referenced_events,
         "fault_intervals": faults,
+        "fault_events": fault_events,
         "annotations": annotations,
     }
 

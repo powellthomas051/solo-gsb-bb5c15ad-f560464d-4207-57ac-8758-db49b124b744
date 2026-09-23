@@ -157,6 +157,38 @@ def intersect(intervals: Iterable[Interval]) -> list[Interval]:
     return result
 
 
+def connected_components(items, *, start, end):
+    """Partition interval-carrying *items* into connected components.
+
+    Two intervals ``[a,b)`` and ``[c,d)`` are related when they overlap
+    (``a < d`` and ``c < b``) or meet end-to-end (``b == c``).  Components
+    are the transitive closure: in a chain A~B~C the three stay in one
+    component even when A and C are disjoint.
+
+    The sweep keeps one open component plus the furthest endpoint seen so
+    far.  Because starts are processed in order, any later item whose start
+    is within that endpoint (touching included) directly meets the interval
+    currently owning the endpoint, so the greedy walk yields exactly the
+    same partition as a union-find.  Members inside each component stay
+    ordered by ``(start, end)``.
+    """
+    ordered = sorted(items, key=lambda it: (start(it), end(it)))
+    components: list[list[Any]] = []
+    current: list[Any] | None = None
+    current_end = -math.inf
+    for item in ordered:
+        s, e = start(item), end(item)
+        if current is None or s > current_end + _EPS:
+            current = [item]
+            components.append(current)
+            current_end = e
+        else:
+            current.append(item)
+            if e > current_end:
+                current_end = e
+    return components
+
+
 @dataclass
 class Condition:
     device: str

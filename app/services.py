@@ -10,6 +10,7 @@ from . import db
 from .engine import (
     Condition,
     Event,
+    connected_components,
     evaluate_rule,
     to_epoch,
     to_number,
@@ -279,6 +280,74 @@ def query_faults(
             }
         )
     return out
+
+
+def build_fault_events(faults: list[dict]) -> list[dict]:
+    """Group fault intervals into fault *events*.
+
+    Faults from different rules belong to the same event when their
+    half-open intervals overlap or meet end-to-end; grouping follows the
+    transitive closure.  The event span runs from the earliest member start
+    to the latest member end.  Input must be ordered by (start, rule_id), as
+    returned by ``query_faults``.
+    """
+    groups = connected_components(faults, start=lambda f: f["start"], end=lambda f: f["end"])
+    events = []
+    for members in groups:
+        ev_start = min(f["start"] for f in members)
+        ev_end = max(f["end"] for f in members)
+        rule_ids: list[int] = []
+        rule_by_id: dict[int, dict] = {}
+        for f in members:
+            if f["rule_id"] not in rule_ids:
+                rule_ids.append(f["rule_id"])
+                rule_by_id[f["rule_id"]] = {
+                    "rule_id": f["rule_id"],
+                    "rule_name": f["rule_name"],
+                    "logic": f["logic"],
+                }
+        rules = [rule_by_id[rid] for rid in rule_ids]
+        events.append(
+            {
+                "start": ev_start,
+                "end": ev_end,
+                "duration": ev_end - ev_start,
+                "fault_count": len(members),
+                "rule_count": len(rule_ids),
+                "rules": rules,
+                "members": members,
+            }
+        )
+    return events
+
+
+def query_fault_events(
+    start: float | None = None, end: float | None = None
+) -> list[dict]:
+    """Fault events for the current time window.
+
+    Grouping is always computed over *all* stored faults so that transitive
+    chains cannot be severed by the window; events whose span overlaps the
+    half-open window are returned, and every member is carried along
+    (flagged ``in_window``) so the event envelope stays truthful.
+    """
+    all_faults = query_faults(None, None)
+    selected = []
+    for event in build_fault_events(all_faults):
+        if start is not None and event["end"] <= start:
+            continue
+        if end is not None and event["start"] >= end:
+            continue
+        for member in event["members"]:
+            member["in_window"] = not (
+                (start is not None and member["end"] <= start)
+                or (end is not None and member["start"] >= end)
+            )
+        selected.append(event)
+
+    for index, event in enumerate(selected, start=1):
+        event["event_id"] = f"E{index}"
+    return selected
 
 
 def query_annotations(start: float | None = None, end: float | None = None) -> list[dict]:
