@@ -118,8 +118,18 @@
       </section>
 
       <section class="card">
-        <div class="card-head"><h2>故障区间与触发证据</h2><span id="fault-count" class="muted"></span></div>
+        <div class="card-head">
+          <h2>故障</h2>
+          <div class="view-tabs" role="tablist">
+            <button id="tab-faults" class="tab-btn active" type="button">故障列表 <span id="fault-count" class="tab-count"></span></button>
+            <button id="tab-events" class="tab-btn" type="button">故障事件 <span id="event-grp-count" class="tab-count"></span></button>
+          </div>
+        </div>
+        <div id="fault-event-hint" class="muted small" hidden>
+          不同规则产生、时间区间<b>重叠或首尾相接</b>（含传递链）的故障归为同一事件；事件区间为成员最早开始至最晚结束。原始故障结果不受影响。
+        </div>
         <div id="fault-list"></div>
+        <div id="fault-event-list" hidden></div>
       </section>
 
       <section class="card">

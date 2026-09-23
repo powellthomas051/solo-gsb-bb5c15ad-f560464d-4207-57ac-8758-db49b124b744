@@ -202,6 +202,39 @@ body {
 .fault-name { font-weight: 600; }
 .fault-detail { border-top: 1px solid var(--border); padding: 10px; display: none; background: #fff; }
 .fault-row.open .fault-detail { display: block; }
+
+/* fault list / fault-event view tabs */
+.view-tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.tab-btn {
+  border: none; background: #f8fafc; color: var(--muted);
+  padding: 4px 12px; font-size: 12px; cursor: pointer;
+}
+.tab-btn + .tab-btn { border-left: 1px solid var(--border); }
+.tab-btn:hover { background: #eef2f7; }
+.tab-btn.active { background: var(--primary); color: #fff; }
+.tab-count { font-variant-numeric: tabular-nums; opacity: 0.85; margin-left: 2px; }
+
+/* fault events */
+#fault-event-hint { margin-bottom: 8px; line-height: 1.5; }
+.event-row { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: #fbfcfe; overflow: hidden; }
+.event-summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
+.event-summary:hover { background: #f1f5f9; }
+.event-chevron { color: var(--muted); width: 12px; }
+.event-id-pill { font-weight: 700; font-size: 12px; color: #7f1d1d; background: #fee2e2; border: 1px solid #fecaca; border-radius: 10px; padding: 1px 9px; }
+.event-rules { color: var(--muted); font-size: 12px; width: 100%; padding-left: 20px; }
+.event-track-wrap { padding: 2px 10px 6px 30px; cursor: pointer; }
+.event-track { width: 100%; display: block; }
+.event-track rect { cursor: pointer; }
+.event-detail { border-top: 1px solid var(--border); padding: 8px 10px 10px; display: none; background: #fff; }
+.event-row.open .event-detail { display: block; }
+.event-members-head { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.event-member { border: 1px solid var(--border); border-radius: 7px; margin-bottom: 6px; overflow: hidden; }
+.event-member.out-of-window { background: #fffbeb; }
+.member-summary { display: flex; align-items: center; gap: 8px; padding: 6px 9px; cursor: pointer; flex-wrap: wrap; }
+.member-summary:hover { background: #f1f5f9; }
+.event-member.open { box-shadow: 0 0 0 2px #dbeafe; }
+.member-detail { border-top: 1px dashed var(--border); padding: 8px 10px; display: none; }
+.event-member.open .member-detail { display: block; }
 .evidence-block { margin-top: 8px; border-left: 3px solid #c7d2fe; padding-left: 10px; }
 .evidence-block table { border-collapse: collapse; margin-top: 4px; }
 .evidence-block td { padding: 2px 10px 2px 0; font-size: 12px; font-variant-numeric: tabular-nums; }

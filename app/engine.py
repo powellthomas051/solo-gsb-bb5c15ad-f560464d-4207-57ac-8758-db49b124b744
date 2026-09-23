@@ -120,6 +120,39 @@ def union(intervals: Iterable[Interval]) -> list[Interval]:
     return merged
 
 
+def cluster_intervals(intervals: Iterable[Interval]) -> list[list[int]]:
+    """Cluster interval indices by overlap-or-touch, *transitively*.
+
+    Half-open intervals that overlap (``[a,b)`` vs ``[a',b')`` with
+    ``a' < b``) or merely touch (``[a,b)`` followed by ``[b,c)``) belong to
+    the same cluster, and the relation chains: A~B and B~C implies
+    ``{A, B, C}`` even when A and C never intersect.
+
+    Returns clusters as lists of original input indices.  Empty/zero-length
+    inputs are dropped; clusters are ordered by their earliest ``start``.
+    """
+    ordered = sorted(
+        ((i, iv) for i, iv in enumerate(intervals) if iv.end > iv.start),
+        key=lambda item: (item[1].start, item[1].end),
+    )
+    clusters: list[list[int]] = []
+    current: list[int] = []
+    cur_end: float = -math.inf
+    for index, iv in ordered:
+        if current and iv.start <= cur_end + _EPS:
+            current.append(index)
+            if iv.end > cur_end:
+                cur_end = iv.end
+        else:
+            if current:
+                clusters.append(current)
+            current = [index]
+            cur_end = iv.end
+    if current:
+        clusters.append(current)
+    return clusters
+
+
 def intersect(intervals: Iterable[Interval]) -> list[Interval]:
     """Intersection of interval lists, each pre-merged (touching = continuous).
 

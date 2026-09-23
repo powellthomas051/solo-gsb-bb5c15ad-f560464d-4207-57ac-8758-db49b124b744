@@ -10,6 +10,8 @@ from . import db
 from .engine import (
     Condition,
     Event,
+    Interval,
+    cluster_intervals,
     evaluate_rule,
     to_epoch,
     to_number,
@@ -279,6 +281,90 @@ def query_faults(
             }
         )
     return out
+
+
+def _overlaps_window(start: float, end: float, win_start: float | None, win_end: float | None) -> bool:
+    """Half-open overlap with the filter window [win_start, win_end)."""
+    if win_start is not None and end <= win_start:
+        return False
+    if win_end is not None and start >= win_end:
+        return False
+    return True
+
+
+def _fault_member(fault: dict, in_window: bool) -> dict:
+    """One member fault as embedded inside a fault event.
+
+    The payload is a copy of the original stored fault (id, interval and
+    trigger evidence untouched) plus the window-membership flag; the event
+    view never rewrites fault results.
+    """
+    return {
+        "fault_id": fault["id"],
+        "rule_id": fault["rule_id"],
+        "rule_name": fault["rule_name"],
+        "logic": fault["logic"],
+        "start": fault["start"],
+        "end": fault["end"],
+        "duration_required": fault["duration_required"],
+        "confirmed_at": fault["confirmed_at"],
+        "in_window": in_window,
+        "evidence": fault["evidence"],
+    }
+
+
+def build_fault_events(
+    faults: list[dict], start: float | None = None, end: float | None = None
+) -> list[dict]:
+    """Group faults from different rules into fault *events*.
+
+    Two faults (typically produced by different rules) belong to the same
+    event when their ``[start,end)`` intervals overlap or touch end-to-end;
+    the relation is transitive, so chaining links are merged as well.  An
+    event spans ``[min member start, max member end)``.
+
+    Components are first computed over *all* faults (so chains crossing the
+    filter window stay intact), then only events overlapping the
+    half-open filter window are returned.  Members outside the window are
+    still listed, flagged ``in_window: false``.
+    """
+    groups = cluster_intervals([Interval(f["start"], f["end"]) for f in faults])
+    events: list[dict] = []
+    for members in groups:
+        member_faults = [faults[i] for i in members]
+        ev_start = min(f["start"] for f in member_faults)
+        ev_end = max(f["end"] for f in member_faults)
+        if not _overlaps_window(ev_start, ev_end, start, end):
+            continue
+        member_payload = [
+            _fault_member(f, _overlaps_window(f["start"], f["end"], start, end))
+            for f in sorted(member_faults, key=lambda f: (f["start"], f["end"], f["id"]))
+        ]
+        rule_ids = sorted({f["rule_id"] for f in member_faults})
+        events.append(
+            {
+                "start": ev_start,
+                "end": ev_end,
+                "rule_count": len(rule_ids),
+                "fault_count": len(member_payload),
+                "member_count_in_window": sum(1 for m in member_payload if m["in_window"]),
+                "rule_ids": rule_ids,
+                "rule_names": sorted({f["rule_name"] for f in member_faults}),
+                "members": member_payload,
+            }
+        )
+    events.sort(key=lambda e: (e["start"], e["end"]))
+    # Sequential display id, stable within the queried time range.
+    for index, event in enumerate(events, start=1):
+        event["id"] = f"E{index}"
+    return events
+
+
+def query_fault_events(
+    start: float | None = None, end: float | None = None
+) -> list[dict]:
+    """Fault events for the filter window; clustering sees every stored fault."""
+    return build_fault_events(query_faults(None, None), start, end)
 
 
 def query_annotations(start: float | None = None, end: float | None = None) -> list[dict]:

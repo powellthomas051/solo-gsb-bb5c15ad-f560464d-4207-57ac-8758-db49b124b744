@@ -10,6 +10,7 @@ from app.engine import (
     Event,
     Interval,
     channel_held_intervals,
+    cluster_intervals,
     evaluate_rule,
     intersect,
     to_epoch,
@@ -55,6 +56,35 @@ def test_intersect_basic_and_touching():
     assert intersect(
         [[Interval(0, 6), Interval(6, 12)], [Interval(0, 5), Interval(7, 12)]]
     ) == [Interval(0, 5), Interval(7, 12)]
+
+
+def test_cluster_overlapping_intervals():
+    groups = cluster_intervals([Interval(0, 10), Interval(5, 15), Interval(20, 25)])
+    assert groups == [[0, 1], [2]]
+
+
+def test_cluster_merges_touching_intervals():
+    # [0,6) and [6,10) touch end-to-end and must be one event
+    assert cluster_intervals([Interval(0, 6), Interval(6, 10)]) == [[0, 1]]
+
+
+def test_cluster_transitive_chain():
+    # A overlaps/touches B, B touches C, but A and C are disjoint; all merge
+    # into one component because the relation is transitive.
+    intervals = [Interval(0, 6), Interval(6, 10), Interval(10, 14)]
+    assert cluster_intervals(intervals) == [[0, 1, 2]]
+
+
+def test_cluster_does_not_bridge_real_gaps():
+    groups = cluster_intervals([Interval(0, 6), Interval(6.5, 10), Interval(20, 25)])
+    assert groups == [[0], [1], [2]]
+
+
+def test_cluster_unsorted_input_preserves_indices():
+    intervals = [Interval(20, 25), Interval(0, 6), Interval(6, 10)]
+    groups = cluster_intervals(intervals)
+    # ordered by earliest start; indices refer to the original input order
+    assert groups == [[1, 2], [0]]
 
 
 def test_timestamp_parsing():
